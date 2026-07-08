@@ -41,5 +41,25 @@ class TestCodeGeneratorAgents(unittest.TestCase):
         except Exception as e:
             self.fail(f"Could not reach Ollama: {e}. Make sure 'ollama serve' is running!")
 
+    def test_check_imports_stdlib(self):
+        """Test check_imports with standard library imports."""
+        from agents.static_checker import check_imports
+        code = "import sys\nimport os\nfrom datetime import datetime"
+        is_ok, err, pkgs = check_imports(code)
+        self.assertTrue(is_ok)
+        self.assertIsNone(err)
+        self.assertEqual(pkgs, [])
+
+    def test_check_imports_external(self):
+        """Test check_imports with multiple external packages (all allowed)."""
+        from agents.static_checker import check_imports
+        code = "import requests\nfrom pandas import DataFrame\nimport tensorflow"
+        is_ok, err, pkgs = check_imports(code)
+        self.assertTrue(is_ok)
+        self.assertIsNone(err)
+        self.assertEqual(set(pkgs), {"requests", "pandas", "tensorflow"})
+
 if __name__ == "__main__":
     unittest.main()
+
+

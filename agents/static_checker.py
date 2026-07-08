@@ -37,40 +37,37 @@ except AttributeError:
 
 def check_imports(code):
     """
-    Checks if all imports in the code belong to the Python standard library.
-    
-    Args:
-        code (str): Python source code string.
-        
-    Returns:
-        tuple: (is_valid, error_message) where is_valid is a boolean and
-               error_message is a string error description if invalid, or None if valid.
+    Check the code for imports.
+    Returns: (is_valid, error_message, external_packages)
+    Always returns is_valid=True (unless syntax error which is already caught by the syntax checker).
+    external_packages is a list of non-stdlib packages used.
     """
     logger.info("Running Static Import Checker Agent...")
     if not code:
-        return True, None
+        return True, None, []
         
     try:
         tree = ast.parse(code)
+        external_packages = set()
+        
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     base = alias.name.split('.')[0]
                     if base not in KNOWN_STDLIB:
-                        err = f"Import '{alias.name}' is NOT a standard library module. Define all logic and helper functions directly inside the file."
-                        logger.warning(f"Static Import Check failed: {err}")
-                        return False, err
+                        external_packages.add(base)
             elif isinstance(node, ast.ImportFrom):
                 if node.module is None:
                     continue
                 base = node.module.split('.')[0]
                 if base not in KNOWN_STDLIB:
-                    err = f"Import from '{node.module}' is NOT allowed. Define all modules and functions directly inside this single file."
-                    logger.warning(f"Static Import Check failed: {err}")
-                    return False, err
-        logger.info("Static Import Check passed.")
-        return True, None
+                    external_packages.add(base)
+        
+        logger.info(f"Static Import Check passed. External packages used: {list(external_packages)}")
+        return True, None, list(external_packages)
     except Exception as e:
         # Ignore syntax errors as they are validated by the syntax checker
         logger.debug(f"Static checker bypassed error during parsing (likely syntax error): {e}")
-        return True, None
+        return True, None, []
+
+

@@ -42,12 +42,17 @@ def generate(plan, model=DEFAULT_MODEL, error_message=None, previous_code=None):
     logger.info("Running Generator Agent...")
     
     system_prompt = (
-        "You are an expert Python Developer. Your goal is to write complete, syntactically correct, "
-        "and clean Python code implementing the given plan. Use only standard libraries unless "
-        "external modules are explicitly requested. Do not include placeholders, comments like '# TODO', "
-        "or write incomplete implementations. Your entire code must be runnable.\n"
-        "Crucially: Output the final code wrapped inside a single standard ```python ... ``` markdown block. "
-        "Any explanations or discussions must go outside that markdown block, or be omitted entirely."
+        "You are an expert Python Developer. Write complete, syntactically correct, runnable Python code "
+        "implementing the given plan. Do not include placeholders, '# TODO' comments, or incomplete logic.\n"
+        "IMPORT RULES:\n"
+        "  - Import every module you use. No implicit imports.\n"
+        "  - If you use 'np', you MUST have 'import numpy as np'.\n"
+        "  - If you use 'mp', you MUST have 'import mediapipe as mp'; initialize hands with 'mp.solutions.hands.Hands()'.\n"
+        "  - For OpenCV, use 'import cv2'.\n"
+        "  - For screen brightness, use 'import screen_brightness_control as sbc'; call 'sbc.get_brightness()' and 'sbc.set_brightness(val)'.\n"
+        "  - For any other library alias you use, add its import at the very top of the file.\n"
+        "Output the final code wrapped inside a single ```python ... ``` markdown block. "
+        "Omit all explanations outside that block."
     )
     
     if error_message and previous_code:
@@ -89,10 +94,16 @@ def generate_direct(prompt, model=DEFAULT_MODEL, error_message=None, previous_co
     logger.info("Running Generator Agent (Single-Shot Mode)...")
     
     system_prompt = (
-        "You are an expert Python Developer. Your goal is to write a complete, syntactically correct, "
-        "and clean Python script that fulfills the user's request. Use only standard libraries unless "
-        "external modules are explicitly requested. Do not include placeholders or incomplete logic.\n"
-        "Crucially: Output the final code wrapped inside a single standard ```python ... ``` markdown block. "
+        "You are an expert Python Developer. Write a complete, syntactically correct, runnable Python script "
+        "that fulfills the user's request. Do not include placeholders or incomplete logic.\n"
+        "IMPORT RULES:\n"
+        "  - Import every module you use. No implicit imports.\n"
+        "  - If you use 'np', you MUST have 'import numpy as np'.\n"
+        "  - If you use 'mp', you MUST have 'import mediapipe as mp'; initialize hands with 'mp.solutions.hands.Hands()'.\n"
+        "  - For OpenCV, use 'import cv2'.\n"
+        "  - For screen brightness, use 'import screen_brightness_control as sbc'; call 'sbc.get_brightness()' and 'sbc.set_brightness(val)'.\n"
+        "  - For any other library alias you use, add its import at the very top of the file.\n"
+        "Output the final code wrapped inside a single ```python ... ``` markdown block. "
         "Do not include any conversational explanation before or after the code block."
     )
     
