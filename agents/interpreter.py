@@ -12,10 +12,33 @@ _FILE_KEYWORD_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Keywords that indicate the prompt requires physical hardware or heavy ML inference
+_HARDWARE_KEYWORD_PATTERN = re.compile(
+    r'\b(?:webcam|camera|microphone|mic|gpu|real-time|realtime|mediapipe|'
+    r'tensorflow|torch|pytorch|yolo|face detection|object detection|inference)\b',
+    re.IGNORECASE
+)
+
+# Keywords that indicate the prompt is about screen brightness control
+_BRIGHTNESS_KEYWORD_PATTERN = re.compile(
+    r'\b(?:brightness|screen brightness|display brightness)\b',
+    re.IGNORECASE
+)
+
 
 def _prompt_uses_files(prompt: str) -> bool:
     """Return True if the prompt is about file or directory operations."""
     return bool(_FILE_KEYWORD_PATTERN.search(prompt))
+
+
+def _prompt_needs_hardware_note(prompt: str) -> bool:
+    """Return True only if the prompt explicitly involves hardware or heavy ML models."""
+    return bool(_HARDWARE_KEYWORD_PATTERN.search(prompt))
+
+
+def _prompt_uses_brightness(prompt: str) -> bool:
+    """Return True only if the prompt explicitly involves screen brightness control."""
+    return bool(_BRIGHTNESS_KEYWORD_PATTERN.search(prompt))
 
 
 def _check_prompt_length(prompt: str) -> Optional[str]:
@@ -37,7 +60,8 @@ def _check_prompt_length(prompt: str) -> Optional[str]:
 def engineer_prompt(prompt: str, model: str = DEFAULT_MODEL) -> str:
     """
     Expands a vague user prompt into an ultra-detailed, technical prompt for code generation.
-    Also flags ambiguous requirements and validates feasibility.
+    Ambiguity checks and feasibility notes are injected only when relevant to avoid
+    confusing small LLMs with unrelated rules.
 
     Args:
         prompt (str): The user's original request.
@@ -54,6 +78,7 @@ def engineer_prompt(prompt: str, model: str = DEFAULT_MODEL) -> str:
         logger.warning(length_warning)
         print(f"\n{length_warning}\n")
 
+    # ── Conditional rule injection ────────────────────────────────────────────
     # Only add sys.argv rule when the prompt is about files/folders
     file_ops_rule = (
         "   - Directory/File Paths: The script must ALWAYS accept the target path from sys.argv[1]. "
@@ -62,40 +87,51 @@ def engineer_prompt(prompt: str, model: str = DEFAULT_MODEL) -> str:
         "   - Arguments: Only add command-line argument handling if it is genuinely required by the task.\n"
     )
 
+    # Only add feasibility note rule when the prompt actually involves hardware/heavy ML
+    feasibility_rule = (
+        "2. Feasibility Note: This task involves hardware (webcam/camera/microphone) or heavy ML models. "
+        "Add a brief note at the top of the enhanced prompt describing what hardware or compute is needed "
+        "so the user knows what to expect before running the script.\n"
+    ) if _prompt_needs_hardware_note(prompt) else ""
+
+    # Only add SBC rules when prompt explicitly mentions brightness — injecting these rules
+    # for unrelated tasks causes small models to hallucinate SBC imports everywhere.
+    sbc_rule = (
+        "BRIGHTNESS CONTROL API RULES (this task involves screen brightness):\n"
+        "   - Do NOT use a 'ScreenBrightnessControl' class — it does not exist.\n"
+        "   - Correct API: 'import screen_brightness_control as sbc', "
+        "then 'sbc.get_brightness()' and 'sbc.set_brightness(value)'.\n"
+        "   - Always wrap brightness calls in try/except.\n"
+    ) if _prompt_uses_brightness(prompt) else ""
+    # ─────────────────────────────────────────────────────────────────────────
+
     system_prompt = (
         "You are a Senior Prompt Engineer specializing in Python code generation.\n"
         "Your ONLY task is to rewrite the user's request into an ultra-detailed, unambiguous technical prompt "
         "for a code-generating AI.\n\n"
         "Follow these rules strictly:\n"
         "0. Title: Your output MUST start with a clear, concise '**Title:**' line that summarizes the task in 5-8 words "
-        "(e.g., '**Title:** Multi-Threaded Log File Analyzer'). This title will be used as the filename, so make it descriptive and safe.\n"
-        "1. Ambiguity Check: Before specifying implementation details, identify ANY ambiguous terms in the request. "
-        "For each ambiguous term, state the assumption you are making and why. "
-        "Example: 'swipe detection' is ambiguous — assuming directional hand movement (left/right delta of palm center), "
-        "NOT a threshold distance comparison.\n"
-        "2. Feasibility Note: If the request requires hardware (webcam, GPU, microphone) or heavy models "
-        "(e.g., real-time ML inference on CPU), add a brief feasibility note so the user knows what to expect.\n"
-        "3. Algorithm: If the user implies an algorithm (e.g., maze generation, sorting, pathfinding), explicitly name and detail "
-        "the best standard algorithm (e.g., 'Recursive Backtracking', 'A* Search', 'QuickSort').\n"
-        "4. Data Structures: Specify exactly what data structures to use (e.g., '2D list of characters', 'priority queue').\n"
-        "5. Logic: Explicitly describe the core logic step-by-step.\n"
+        "(e.g., '**Title:** Sieve of Eratosthenes Prime Generator'). This title will be used as the filename.\n"
+        "1. Ambiguity Check: Identify ANY ambiguous terms in the request and state the assumption you are making. "
+        "Example: 'swipe detection' is ambiguous — assume directional hand movement delta, NOT a pixel distance threshold.\n"
+        + feasibility_rule +
+        "3. Algorithm: If the user implies an algorithm (e.g., Sieve of Eratosthenes, A*, QuickSort), "
+        "explicitly name it and describe it step by step.\n"
+        "4. Data Structures: Specify exactly what data structures to use.\n"
+        "5. Logic: Describe the core logic step-by-step.\n"
         "6. Constraints:\n"
         "   - Do NOT import from custom filenames or assume external .py files exist.\n"
         "   - Define all helper functions inside this single file.\n"
-        "   - If the task requires external packages (e.g., cv2, mediapipe, numpy, requests), state them explicitly. "
-        "Every library used must be imported at the top of the file with its standard alias "
-        "(e.g., numpy -> import numpy as np, mediapipe -> import mediapipe as mp, opencv -> import cv2).\n"
+        "   - ONLY include imports for libraries that are explicitly required by the task. "
+        "Do NOT invent or add any library not mentioned or clearly implied by the task.\n"
+        "   - Every library used must be imported at the top of the file with its standard alias.\n"
         "7. Concrete Implementation Rules:\n"
         + file_ops_rule +
-        "   - Imports: All required libraries must be imported explicitly at the top of the file.\n"
         "   - Error handling: Handle all edge cases gracefully without crash loops.\n"
         "8. Output: Define exactly how the final output should be formatted or printed.\n"
         "9. Edge Cases: Explicitly address boundaries, empty inputs, or limit constraints.\n"
-        "10. screen_brightness_control (SBC) rules (apply ONLY if the task involves screen brightness):\n"
-        "   - Do NOT use `ScreenBrightnessControl` class – it does not exist.\n"
-        "   - Correct API: `import screen_brightness_control as sbc`, then `sbc.get_brightness()` and `sbc.set_brightness(value)`.\n"
-        "   - Always wrap brightness calls in try/except.\n\n"
-        "Output ONLY the enhanced technical prompt. No greetings, filler, or markdown code blocks."
+        + sbc_rule +
+        "\nOutput ONLY the enhanced technical prompt. No greetings, filler, or markdown code blocks."
     )
 
     user_message = (
