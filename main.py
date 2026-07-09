@@ -271,10 +271,11 @@ class Supervisor:
                 else:
                     logger.info("Code Reviewer: code is aligned with request.")
 
-            # Auto-patch missing sys import
-            if "sys.argv" in code and "import sys" not in code:
-                logger.info("Auto-patching missing 'sys' import...")
-                code = "import sys\n" + code
+            # Auto-patch missing common standard library imports
+            for lib in ["sys", "unittest", "time", "math"]:
+                if f"{lib}." in code and f"import {lib}" not in code and f"from {lib}" not in code:
+                    logger.info(f"Auto-patching missing '{lib}' import...")
+                    code = f"import {lib}\n" + code
 
             # Step 4: Syntax & Dependency Processing (No runtime execution checks)
             logger.info("=== STEP 4: VALIDATING CODE ===")
