@@ -28,7 +28,24 @@ _BRIGHTNESS_KEYWORD_PATTERN = re.compile(
 
 def _prompt_uses_files(prompt: str) -> bool:
     """Return True if the prompt is about file or directory operations."""
-    return bool(_FILE_KEYWORD_PATTERN.search(prompt))
+    prompt_clean = prompt.lower()
+
+    # Remove generic coding command prefixes (e.g. "write a python script", "create a function")
+    prompt_clean = re.sub(
+        r"\b(?:write|create|build|make|develop)\s+(?:a\s+)?(?:python\s+)?(?:script|function|program|code|app|application|sieve|generator)\b",
+        "",
+        prompt_clean
+    )
+
+    # Remove generic user/console input readings (e.g. "read from console", "get user input")
+    prompt_clean = re.sub(
+        r"\b(?:read|get|accept|ask\s+for)\s+(?:user\s+)?(?:input|console|keyboard|args|arguments)\b",
+        "",
+        prompt_clean
+    )
+
+    return bool(_FILE_KEYWORD_PATTERN.search(prompt_clean))
+
 
 
 def _prompt_needs_hardware_note(prompt: str) -> bool:
