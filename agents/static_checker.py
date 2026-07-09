@@ -1,5 +1,6 @@
 import ast
 import sys
+from typing import List, Tuple, Optional
 from utils.logger import logger
 
 # Retrieve standard library modules from sys or fallback
@@ -35,39 +36,43 @@ except AttributeError:
         "wsgiref", "xdrlib", "xml", "xmlrpc", "zipfile", "zipimport", "zlib", "zoneinfo"
     }
 
-def check_imports(code):
+def check_imports(code: str) -> Tuple[bool, Optional[str], List[str]]:
     """
     Check the code for imports.
     Returns: (is_valid, error_message, external_packages)
-    Always returns is_valid=True (unless syntax error which is already caught by the syntax checker).
-    external_packages is a list of non-stdlib packages used.
+    Always returns is_valid=True (syntax errors are caught by the syntax checker first).
+    external_packages is a list of non-stdlib top-level package names used.
     """
     logger.info("Running Static Import Checker Agent...")
     if not code:
         return True, None, []
-        
+
     try:
         tree = ast.parse(code)
-        external_packages = set()
-        
+        external_packages: set = set()
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    base = alias.name.split('.')[0]
+                    base = alias.name.split(".")[0]
                     if base not in KNOWN_STDLIB:
                         external_packages.add(base)
             elif isinstance(node, ast.ImportFrom):
                 if node.module is None:
                     continue
-                base = node.module.split('.')[0]
+                base = node.module.split(".")[0]
                 if base not in KNOWN_STDLIB:
                     external_packages.add(base)
-        
+
         logger.info(f"Static Import Check passed. External packages used: {list(external_packages)}")
         return True, None, list(external_packages)
+
+    except SyntaxError as e:
+        # Syntax errors are already handled upstream; silently skip.
+        logger.debug(f"Static checker skipped — syntax error already caught: {e}")
+        return True, None, []
     except Exception as e:
-        # Ignore syntax errors as they are validated by the syntax checker
-        logger.debug(f"Static checker bypassed error during parsing (likely syntax error): {e}")
+        logger.warning(f"Static checker encountered unexpected error: {e}")
         return True, None, []
 
 

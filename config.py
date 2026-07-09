@@ -15,28 +15,37 @@ GENERATOR_TEMP = 0.1
 MAX_RETRIES = 3
 MAX_SYNTAX_RETRIES = 3
 
+# Timeout settings (seconds)
+LLM_CALL_TIMEOUT = 120        # Initial LLM API call timeout; increases on each retry
+SMOKE_TEST_TIMEOUT = 2        # Max seconds for the subprocess smoke test
+
+# Prompt length guard (approximate tokens — 1 token ≈ 4 characters)
+# qwen2.5-coder:1.5b has a ~4K context window; leave headroom for system prompt + output
+MAX_PROMPT_TOKENS = 3000
+
 # Logging configuration
 LOG_FILE = "agent_system.log"
 
-# Allowed external packages (non-stdlib) - no longer blocked by static checker
-# ALLOWED_EXTERNAL_PACKAGES = [...]
-
 # Mapping of Python import names to their actual PyPI package names.
 IMPORT_TO_PACKAGE = {
-    'cv2': 'opencv-python',
-    'bs4': 'beautifulsoup4',
-    'PIL': 'pillow',
-    'sklearn': 'scikit-learn',
-    'skimage': 'scikit-image',
-    'matplotlib': 'matplotlib',
-    'numpy': 'numpy',
-    'pandas': 'pandas',
-    'requests': 'requests',
-    'mediapipe': 'mediapipe',
-    'pygame': 'pygame',
-    'tensorflow': 'tensorflow',
-    'torch': 'torch',
-    'screen_brightness_control': 'screen-brightness-control'
+    "cv2": "opencv-python",
+    "bs4": "beautifulsoup4",
+    "PIL": "pillow",
+    "sklearn": "scikit-learn",
+    "skimage": "scikit-image",
+    "matplotlib": "matplotlib",
+    "numpy": "numpy",
+    "pandas": "pandas",
+    "requests": "requests",
+    "mediapipe": "mediapipe",
+    "pygame": "pygame",
+    "tensorflow": "tensorflow",
+    "torch": "torch",
+    "screen_brightness_control": "screen-brightness-control",
+    "scipy": "scipy",
+    "flask": "flask",
+    "fastapi": "fastapi",
+    "pydantic": "pydantic",
+    "sqlalchemy": "sqlalchemy",
+    "aiohttp": "aiohttp",
 }
-
-

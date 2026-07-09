@@ -1,8 +1,9 @@
+from typing import Optional
 from utils.llm_client import call_llm
 from config import PLANNER_TEMP, DEFAULT_MODEL
 from utils.logger import logger
 
-def plan(enhanced_prompt, model=DEFAULT_MODEL):
+def plan(enhanced_prompt: str, model: str = DEFAULT_MODEL) -> str:
     """
     Takes an enhanced technical prompt and generates a detailed step-by-step implementation plan.
     

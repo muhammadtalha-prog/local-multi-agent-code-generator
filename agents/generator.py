@@ -1,9 +1,10 @@
 import re
+from typing import Optional
 from utils.llm_client import call_llm
 from config import GENERATOR_TEMP, DEFAULT_MODEL
 from utils.logger import logger
 
-def extract_python_code(text):
+def extract_python_code(text: str) -> str:
     """
     Extracts python code from markdown blocks.
     
@@ -26,7 +27,12 @@ def extract_python_code(text):
     # If no markdown block, return raw text trimmed
     return text.strip()
 
-def generate(plan, model=DEFAULT_MODEL, error_message=None, previous_code=None):
+def generate(
+    plan: str,
+    model: str = DEFAULT_MODEL,
+    error_message: Optional[str] = None,
+    previous_code: Optional[str] = None,
+) -> str:
     """
     Generates runnable Python code from an implementation plan, or refines code to fix syntax errors.
     
@@ -78,7 +84,12 @@ def generate(plan, model=DEFAULT_MODEL, error_message=None, previous_code=None):
     logger.debug(f"Generated Python Code:\n{code}")
     return code
 
-def generate_direct(prompt, model=DEFAULT_MODEL, error_message=None, previous_code=None):
+def generate_direct(
+    prompt: str,
+    model: str = DEFAULT_MODEL,
+    error_message: Optional[str] = None,
+    previous_code: Optional[str] = None,
+) -> str:
     """
     Generates runnable Python code directly from a prompt in single-shot mode.
     
