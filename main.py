@@ -3,8 +3,6 @@ import sys
 import os
 import time
 import re
-import subprocess
-import tempfile
 import importlib.util
 from datetime import datetime
 from typing import Optional, Set
@@ -17,7 +15,7 @@ except Exception:
 
 from config import (
     MAX_RETRIES, MAX_SYNTAX_RETRIES, DEFAULT_MODEL,
-    IMPORT_TO_PACKAGE, SMOKE_TEST_TIMEOUT, MAX_PROMPT_TOKENS,
+    IMPORT_TO_PACKAGE, MAX_PROMPT_TOKENS,
 )
 from utils.logger import logger
 from utils.session import save_session, load_last_session, print_history
@@ -131,114 +129,6 @@ def run_agent_with_retry(agent_func, *args, **kwargs):
                 raise
             time.sleep(1)
     return None
-
-
-# ---------------------------------------------------------------------------
-# Smoke test
-# ---------------------------------------------------------------------------
-
-def smoke_test(code: str) -> tuple:
-    """
-    Runs the generated code in a subprocess with a short timeout to catch early
-    import/attribute/name errors before the script blocks (e.g. on webcam or user input).
-
-    Pre-pass: extracts imports and tries `python -c "import X, Y, Z"` first to distinguish
-    real import failures from timeouts caused by hardware blocking.
-
-    Returns: (is_ok, error_message_or_None)
-    """
-    logger.info("Running Runtime Smoke Test...")
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-        f.write(code)
-        temp_path = f.name
-
-    proc = None
-    try:
-        # --- Pre-pass: quick import-only check (Python 3.13 compatible) ---
-        import ast as _ast
-        try:
-            tree = _ast.parse(code)
-            import_names = []
-            for node in _ast.walk(tree):
-                if isinstance(node, _ast.Import):
-                    import_names.extend(a.name.split(".")[0] for a in node.names)
-                elif isinstance(node, _ast.ImportFrom) and node.module:
-                    import_names.append(node.module.split(".")[0])
-
-            if import_names:
-                import_test = "; ".join(f"import {m}" for m in dict.fromkeys(import_names))
-                pre = subprocess.run(
-                    [sys.executable, "-c", import_test],
-                    capture_output=True, text=True, timeout=10
-                )
-                if pre.returncode != 0:
-                    err_lower = pre.stderr.lower()
-                    # Only fail fast on import/module errors — not runtime errors
-                    if "modulenotfounderror" in err_lower or "importerror" in err_lower:
-                        logger.info("Smoke test pre-pass: missing dependency – reported separately.")
-                        return True, None  # deps are surfaced by static checker
-                    if any(e in err_lower for e in ("nameerror", "attributeerror", "typeerror")):
-                        return False, f"Import-time error:\n{pre.stderr.strip()}"
-        except Exception:
-            pass  # Pre-pass is best-effort; don't block on failure
-
-
-        # --- Main smoke test: full subprocess run ---
-        proc = subprocess.Popen(
-            [sys.executable, temp_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-
-        try:
-            _, stderr_output = proc.communicate(timeout=SMOKE_TEST_TIMEOUT)
-            returncode = proc.returncode
-        except subprocess.TimeoutExpired:
-            # Script still running after timeout — likely blocking on camera/input — treat as pass
-            proc.kill()
-            proc.communicate()  # drain pipes to avoid zombie
-            logger.info("Runtime Smoke Test passed (timeout – script started without immediate crash).")
-            return True, None
-
-        if returncode != 0:
-            err = stderr_output.strip()
-            err_lower = err.lower()
-
-            if "modulenotfounderror" in err_lower or "importerror" in err_lower:
-                logger.info("Smoke test: missing dependency – user will install later.")
-                return True, None  # not fatal
-
-            if "nameerror" in err_lower:
-                return False, f"Runtime Name Error (undefined variable/function):\n{err}"
-
-            if "attributeerror" in err_lower:
-                return False, f"Runtime Attribute Error:\n{err}"
-
-            if "typeerror" in err_lower:
-                return False, f"Runtime Type Error:\n{err}"
-
-            if "error" in err_lower or "exception" in err_lower:
-                return False, f"Startup error:\n{err}"
-
-            return False, f"Process exited with non-zero code {returncode}:\n{err}"
-        else:
-            logger.info("Runtime Smoke Test passed successfully.")
-            return True, None
-
-    except Exception as e:
-        logger.error(f"Unexpected error during smoke test: {e}")
-        return False, f"Unexpected error during smoke test: {e}"
-    finally:
-        if proc and proc.poll() is None:
-            proc.kill()
-        # Small delay to let Windows release the file handle before deletion
-        time.sleep(0.05)
-        try:
-            os.unlink(temp_path)
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------------------
@@ -386,8 +276,8 @@ class Supervisor:
                 logger.info("Auto-patching missing 'sys' import...")
                 code = "import sys\n" + code
 
-            # Step 4: Syntax & Smoke Test Loop
-            logger.info("=== STEP 4: VALIDATING & CORRECTING CODE ===")
+            # Step 4: Syntax & Dependency Processing (No runtime execution checks)
+            logger.info("=== STEP 4: VALIDATING CODE ===")
             last_error = None
             final_code = None
 
@@ -399,26 +289,16 @@ class Supervisor:
                     last_error = syntax_error
                     logger.warning(f"Syntax error (iter {iteration}): {syntax_error}")
                 else:
-                    import_ok, import_error, external_packages = check_imports(code)
+                    import_ok, import_error, external_packages = check_imports(validated_code)
                     if not import_ok:
                         last_error = import_error
                         logger.warning(f"Import check failed (iter {iteration}): {import_error}")
                     else:
-                        # Detect missing packages
-                        missing = []
-                        for pkg in external_packages:
-                            try:
-                                __import__(pkg)
-                            except (ImportError, ModuleNotFoundError):
-                                missing.append(pkg)
-                            except Exception as ie:
-                                logger.warning(f"Importing '{pkg}' raised unexpected error: {ie}")
-                                missing.append(pkg)
+                        # Document external dependencies in the file headers
+                        if external_packages:
+                            mapped_missing = [IMPORT_TO_PACKAGE.get(p, p) for p in external_packages]
 
-                        if missing:
-                            mapped_missing = [IMPORT_TO_PACKAGE.get(p, p) for p in missing]
-
-                            # Prepend dependency comments to the top of the file
+                            # Prepend dependency install commands as header comments
                             dep_comment = (
                                 "# ==========================================================================\n"
                                 "# REQUIRED EXTERNAL DEPENDENCIES\n"
@@ -428,46 +308,30 @@ class Supervisor:
                             )
                             validated_code = dep_comment + validated_code
 
-                            req_path = os.path.join(workspace_dir, f"requirements_{run_timestamp}.txt")
-                            try:
-                                with open(req_path, "w", encoding="utf-8") as rf:
-                                    rf.write("\n".join(mapped_missing) + "\n")
-                            except Exception as file_err:
-                                logger.error(f"Failed to write requirements file: {file_err}")
-
-                            req_cmd = f'pip install -r "{req_path}"'
-                            direct_cmd = "pip install " + " ".join(mapped_missing)
-
                             print("\n" + "=" * 60)
-                            print("[WARNING] Missing External Dependencies Detected")
+                            print("[INFO] External Dependencies Detected")
                             print("=" * 60)
-                            print(f"The generated code uses these packages: {', '.join(missing)}")
-                            print("\nTo install them, run ONE of these commands:\n")
-                            print(f"  {req_cmd}")
-                            print("  # OR")
-                            print(f"  {direct_cmd}")
-                            print("\nNote: Missing dependencies have been documented in the file header comments.")
+                            print(f"The generated code uses these packages: {', '.join(external_packages)}")
+                            print("\nTo install them, run:\n")
+                            print(f"  pip install {' '.join(mapped_missing)}")
+                            print("\nNote: Dependencies have been documented in the file header comments.")
                             print("=" * 60 + "\n")
 
                             if auto_install:
-                                install_packages(mapped_missing)
-                            
-                            logger.info("Bypassing Runtime Smoke Test because of missing external packages.")
-                            final_code = validated_code
-                            break
-                        else:
-                            # Smoke test (only runs when all dependencies are present locally)
-                            smoke_ok, smoke_error = smoke_test(code)
-                            if smoke_ok:
-                                final_code = validated_code
-                                logger.info("Code passed all validation checks.")
-                                break
-                            else:
-                                last_error = smoke_error
-                                logger.warning(f"Smoke test failed (iter {iteration}): {smoke_error}")
+                                # Run background installation if requested via CLI flag
+                                try:
+                                    import subprocess
+                                    logger.info(f"Auto-installing: {mapped_missing}")
+                                    subprocess.run([sys.executable, "-m", "pip", "install"] + mapped_missing, capture_output=True)
+                                except Exception as install_err:
+                                    logger.warning(f"Background auto-installation failed: {install_err}")
+
+                        final_code = validated_code
+                        logger.info("Code passed validation checks.")
+                        break
 
                 if iteration < MAX_SYNTAX_RETRIES:
-                    logger.info("Re-running Generator with error feedback...")
+                    logger.info("Re-running Generator with syntax error feedback...")
                     if fast:
                         code = run_agent_with_retry(
                             generate_direct, prompt, model=self.model,
