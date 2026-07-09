@@ -155,39 +155,34 @@ def smoke_test(code: str) -> tuple:
 
     proc = None
     try:
-        # --- Pre-pass: quick import-only check ---
+        # --- Pre-pass: quick import-only check (Python 3.13 compatible) ---
+        import ast as _ast
         try:
-            tree_code = compile(code, "<string>", "exec", ast_flags=0)
-        except SyntaxError:
-            tree_code = None  # Already caught by syntax checker; skip pre-pass
+            tree = _ast.parse(code)
+            import_names = []
+            for node in _ast.walk(tree):
+                if isinstance(node, _ast.Import):
+                    import_names.extend(a.name.split(".")[0] for a in node.names)
+                elif isinstance(node, _ast.ImportFrom) and node.module:
+                    import_names.append(node.module.split(".")[0])
 
-        if tree_code is not None:
-            import ast as _ast
-            try:
-                tree = _ast.parse(code)
-                import_names = []
-                for node in _ast.walk(tree):
-                    if isinstance(node, _ast.Import):
-                        import_names.extend(a.name.split(".")[0] for a in node.names)
-                    elif isinstance(node, _ast.ImportFrom) and node.module:
-                        import_names.append(node.module.split(".")[0])
+            if import_names:
+                import_test = "; ".join(f"import {m}" for m in dict.fromkeys(import_names))
+                pre = subprocess.run(
+                    [sys.executable, "-c", import_test],
+                    capture_output=True, text=True, timeout=10
+                )
+                if pre.returncode != 0:
+                    err_lower = pre.stderr.lower()
+                    # Only fail fast on import/module errors — not runtime errors
+                    if "modulenotfounderror" in err_lower or "importerror" in err_lower:
+                        logger.info("Smoke test pre-pass: missing dependency – reported separately.")
+                        return True, None  # deps are surfaced by static checker
+                    if any(e in err_lower for e in ("nameerror", "attributeerror", "typeerror")):
+                        return False, f"Import-time error:\n{pre.stderr.strip()}"
+        except Exception:
+            pass  # Pre-pass is best-effort; don't block on failure
 
-                if import_names:
-                    import_test = "; ".join(f"import {m}" for m in dict.fromkeys(import_names))
-                    pre = subprocess.run(
-                        [sys.executable, "-c", import_test],
-                        capture_output=True, text=True, timeout=10
-                    )
-                    if pre.returncode != 0:
-                        err_lower = pre.stderr.lower()
-                        # Only fail fast on import/module errors — not runtime errors
-                        if "modulenotfounderror" in err_lower or "importerror" in err_lower:
-                            logger.info("Smoke test pre-pass: missing dependency – reported separately.")
-                            return True, None  # deps are surfaced by static checker
-                        if any(e in err_lower for e in ("nameerror", "attributeerror", "typeerror")):
-                            return False, f"Import-time error:\n{pre.stderr.strip()}"
-            except Exception:
-                pass  # Pre-pass is best-effort; don't block on failure
 
         # --- Main smoke test: full subprocess run ---
         proc = subprocess.Popen(
@@ -521,7 +516,7 @@ class Supervisor:
                     with open(final_path, "w", encoding="utf-8") as f:
                         f.write(final_code)
                     logger.info(f"Saved generated code to '{final_path}'")
-                    print(f"Code saved to: {final_path}")
+                    print(f"Code saved to [{os.path.basename(final_path)}](file:///{os.path.abspath(final_path).replace(chr(92), '/')})")
 
                     # Persist session
                     save_session(
