@@ -418,6 +418,16 @@ class Supervisor:
                         if missing:
                             mapped_missing = [IMPORT_TO_PACKAGE.get(p, p) for p in missing]
 
+                            # Prepend dependency comments to the top of the file
+                            dep_comment = (
+                                "# ==========================================================================\n"
+                                "# REQUIRED EXTERNAL DEPENDENCIES\n"
+                                "# To run this script, please install the following packages first:\n"
+                                f"#   pip install {' '.join(mapped_missing)}\n"
+                                "# ==========================================================================\n\n"
+                            )
+                            validated_code = dep_comment + validated_code
+
                             req_path = os.path.join(workspace_dir, f"requirements_{run_timestamp}.txt")
                             try:
                                 with open(req_path, "w", encoding="utf-8") as rf:
@@ -436,31 +446,25 @@ class Supervisor:
                             print(f"  {req_cmd}")
                             print("  # OR")
                             print(f"  {direct_cmd}")
-                            print("\n" + "=" * 60)
+                            print("\nNote: Missing dependencies have been documented in the file header comments.")
+                            print("=" * 60 + "\n")
 
                             if auto_install:
                                 install_packages(mapped_missing)
-                                missing = []
-                            else:
-                                try:
-                                    answer = input("\nDo you want me to install them for you now? (y/n): ").strip().lower()
-                                    if answer == "y":
-                                        if install_packages(mapped_missing):
-                                            missing = []
-                                    else:
-                                        print("\nOK. You can install later using the commands above.")
-                                except Exception as e:
-                                    print(f"\nCould not prompt for installation: {e}. Please install manually.")
-
-                        # Smoke test
-                        smoke_ok, smoke_error = smoke_test(code)
-                        if smoke_ok:
+                            
+                            logger.info("Bypassing Runtime Smoke Test because of missing external packages.")
                             final_code = validated_code
-                            logger.info("Code passed all validation checks.")
                             break
                         else:
-                            last_error = smoke_error
-                            logger.warning(f"Smoke test failed (iter {iteration}): {smoke_error}")
+                            # Smoke test (only runs when all dependencies are present locally)
+                            smoke_ok, smoke_error = smoke_test(code)
+                            if smoke_ok:
+                                final_code = validated_code
+                                logger.info("Code passed all validation checks.")
+                                break
+                            else:
+                                last_error = smoke_error
+                                logger.warning(f"Smoke test failed (iter {iteration}): {smoke_error}")
 
                 if iteration < MAX_SYNTAX_RETRIES:
                     logger.info("Re-running Generator with error feedback...")
