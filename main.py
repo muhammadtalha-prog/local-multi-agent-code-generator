@@ -18,7 +18,6 @@ from config import (
     IMPORT_TO_PACKAGE, MAX_PROMPT_TOKENS,
 )
 from utils.logger import logger
-from utils.session import save_session, load_last_session, print_history
 from agents import engineer_prompt, plan, generate, generate_direct, check_syntax, check_imports, review_code
 
 
@@ -146,24 +145,6 @@ def slugify(text: str) -> str:
     return text[:50]
 
 
-def install_packages(mapped_missing: list) -> bool:
-    """Runs pip install for the given list of PyPI package names. Returns True on success."""
-    logger.info(f"Installing packages: {mapped_missing}")
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install"] + mapped_missing,
-        capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        print("[SUCCESS] Installation successful!")
-        logger.info("pip install succeeded.")
-        return True
-    else:
-        print("[ERROR] Installation failed. Please run the commands above manually.")
-        print(result.stderr)
-        logger.error(f"pip install failed:\n{result.stderr}")
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Supervisor
 # ---------------------------------------------------------------------------
@@ -178,7 +159,6 @@ class Supervisor:
         output_path: Optional[str] = None,
         fast: bool = False,
         auto_install: bool = False,
-        refine: bool = False,
     ) -> None:
         """
         Orchestrates the multi-agent code generation pipeline.
@@ -187,11 +167,10 @@ class Supervisor:
             prompt (str): User's natural language request.
             output_path (str): Optional explicit output file path.
             fast (bool): If True, skip the planning stage.
-            auto_install (bool): If True, install missing packages without prompting.
-            refine (bool): If True, load the last session and improve it instead of starting fresh.
+            auto_install (bool): If True, install missing packages.
         """
         logger.info(f"Supervisor initiated. Target Model: {self.model}")
-        logger.info(f"User Prompt: '{prompt}' (Fast: {fast}, AutoInstall: {auto_install}, Refine: {refine})")
+        logger.info(f"User Prompt: '{prompt}' (Fast: {fast}, AutoInstall: {auto_install})")
 
         start_time = time.time()
         failed = False
@@ -200,22 +179,6 @@ class Supervisor:
         workspace_dir = os.path.join(base_dir, "workspace")
         os.makedirs(workspace_dir, exist_ok=True)
         run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # --- Refine mode: inject last session context into prompt ---
-        previous_session = None
-        if refine:
-            previous_session = load_last_session()
-            if previous_session:
-                prev_prompt = previous_session.get("prompt", "")
-                prev_code = previous_session.get("code", "")
-                print(f"\n[REFINE] Improving last generation: '{prev_prompt[:60]}'\n")
-                prompt = (
-                    f"Improve and fix the following Python script based on this feedback: {prompt}\n\n"
-                    f"Original request: {prev_prompt}\n\n"
-                    f"Previous code:\n```python\n{prev_code}\n```"
-                )
-            else:
-                print("[REFINE] No previous session found. Starting fresh generation.")
 
         # --- Dependency pre-check (before spending LLM compute) ---
         precheck_dependencies(prompt)
@@ -277,7 +240,7 @@ class Supervisor:
                     logger.info(f"Auto-patching missing '{lib}' import...")
                     code = f"import {lib}\n" + code
 
-            # Step 4: Syntax & Dependency Processing (No runtime execution checks)
+            # Step 4: Syntax & Dependency Processing
             logger.info("=== STEP 4: VALIDATING CODE ===")
             last_error = None
             final_code = None
@@ -319,7 +282,6 @@ class Supervisor:
                             print("=" * 60 + "\n")
 
                             if auto_install:
-                                # Run background installation if requested via CLI flag
                                 try:
                                     import subprocess
                                     logger.info(f"Auto-installing: {mapped_missing}")
@@ -387,15 +349,6 @@ class Supervisor:
                     logger.info(f"Saved generated code to '{final_path}'")
                     print(f"Code saved to [{os.path.basename(final_path)}](file:///{os.path.abspath(final_path).replace(chr(92), '/')})")
 
-                    # Persist session
-                    save_session(
-                        prompt=prompt,
-                        enhanced_prompt=enhanced_prompt,
-                        plan=code_plan,
-                        code=final_code,
-                        output_path=final_path,
-                    )
-
                 except Exception as file_err:
                     logger.error(f"Failed to write generated code: {file_err}")
                     print(f"Warning: Could not save code to file: {file_err}")
@@ -445,32 +398,11 @@ def main() -> None:
         action="store_true",
         help="Automatically install missing external packages without prompting."
     )
-    parser.add_argument(
-        "--refine", "-r",
-        type=str,
-        metavar="FEEDBACK",
-        help="Improve the last generated code. Provide feedback as a string (e.g. 'make it faster')."
-    )
-    parser.add_argument(
-        "--history",
-        action="store_true",
-        help="Show a list of all previous code generation sessions and exit."
-    )
 
     args = parser.parse_args()
 
-    # --history: just print and exit
-    if args.history:
-        print_history()
-        sys.exit(0)
-
-    # --refine: use feedback as prompt, set refine=True
-    if args.refine:
-        prompt = args.refine
-        refine = True
-    elif args.prompt:
+    if args.prompt:
         prompt = args.prompt
-        refine = False
     else:
         try:
             print("--- Local Multi-Agent Code Generator CLI ---")
@@ -478,7 +410,6 @@ def main() -> None:
             if not prompt:
                 print("Prompt cannot be empty. Exiting.")
                 sys.exit(1)
-            refine = False
         except KeyboardInterrupt:
             print("\nExiting.")
             sys.exit(0)
@@ -490,7 +421,7 @@ def main() -> None:
         sys.exit(1)
 
     supervisor = Supervisor(model=args.model)
-    supervisor.run(prompt, args.output, args.fast, auto_install=args.install, refine=refine)
+    supervisor.run(prompt, args.output, args.fast, auto_install=args.install)
 
 
 if __name__ == "__main__":
