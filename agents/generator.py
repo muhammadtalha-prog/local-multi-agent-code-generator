@@ -49,6 +49,7 @@ def generate(
     model: str = DEFAULT_MODEL,
     error_message: Optional[str] = None,
     previous_code: Optional[str] = None,
+    conversation_history: str = "",
 ) -> str:
     """
     Generates runnable Python code from an implementation plan, or refines code to fix errors.
@@ -58,6 +59,7 @@ def generate(
         model (str): The Ollama model to use.
         error_message (str, optional): The error message from the previous attempt.
         previous_code (str, optional): The code from the previous attempt that had the error.
+        conversation_history (str, optional): Full agent dialogue history for multi-turn context.
 
     Returns:
         str: Raw Python code.
@@ -66,6 +68,10 @@ def generate(
 
     if error_message and previous_code:
         logger.info("Generator Agent is performing correction...")
+        history_block = (
+            f"\n\nAgent Dialogue History (for context):\n{conversation_history}"
+            if conversation_history else ""
+        )
         user_message = (
             f"Here is the software implementation plan:\n\n{plan}\n\n"
             f"Your previous code attempt had an error. Here is the code you generated:\n"
@@ -74,6 +80,7 @@ def generate(
             f"{error_message}\n\n"
             f"Please write the complete, corrected version of the code that resolves this error. "
             f"Make sure to output the entire script, not just the fix."
+            + history_block
         )
     else:
         user_message = (
@@ -93,6 +100,7 @@ def generate_direct(
     model: str = DEFAULT_MODEL,
     error_message: Optional[str] = None,
     previous_code: Optional[str] = None,
+    conversation_history: str = "",
 ) -> str:
     """
     Generates runnable Python code directly from a prompt in single-shot mode.
@@ -102,6 +110,7 @@ def generate_direct(
         model (str): The Ollama model to use.
         error_message (str, optional): The error message from the previous attempt.
         previous_code (str, optional): The code from the previous attempt that had the error.
+        conversation_history (str, optional): Full agent dialogue history for multi-turn context.
 
     Returns:
         str: Raw Python code.
@@ -110,6 +119,10 @@ def generate_direct(
 
     if error_message and previous_code:
         logger.info("Generator Agent is performing correction in Single-Shot Mode...")
+        history_block = (
+            f"\n\nAgent Dialogue History (for context):\n{conversation_history}"
+            if conversation_history else ""
+        )
         user_message = (
             f"Here is the software request:\n\n{prompt}\n\n"
             f"Your previous code attempt had an error. Here is the code you generated:\n"
@@ -118,6 +131,7 @@ def generate_direct(
             f"{error_message}\n\n"
             f"Please write the complete, corrected version of the code that resolves this error. "
             f"Make sure to output the entire script, not just the fix."
+            + history_block
         )
     else:
         user_message = (
