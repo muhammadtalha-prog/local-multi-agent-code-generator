@@ -25,7 +25,30 @@ Other useful flags:
 | `--fast` | `-f` | Skip planning stage for quick single-shot generation |
 | `--install` | `-i` | Auto-install missing packages without prompting |
 
+### ⚡ Fast Mode (`--fast` / `-f`)
+
+By default the agent runs a **full 4-step pipeline** (Interpreter → Planner → Generator → Reviewer). Fast mode skips the Interpreter and Planner and goes straight to code generation in a single shot — much quicker, but with less structured output.
+
+```bash
+# Standard mode (recommended — best quality output)
+python main.py --prompt "Write a binary search algorithm in Python."
+
+# Fast mode (quick and lightweight — skips planning)
+python main.py --fast --prompt "Write a binary search algorithm in Python."
+```
+
+| | Standard Mode | Fast Mode (`--fast`) |
+|---|---|---|
+| **Steps** | Interpreter → Planner → Generator → Reviewer → Checker | Generator → Checker |
+| **Quality** | Higher — structured, reviewed code | Variable — single-shot output |
+| **Speed** | Slower (more LLM calls) | Faster (fewer LLM calls) |
+| **Best for** | Complex tasks, algorithms, multi-step logic | Quick scripts, simple tasks |
+
+> [!TIP]
+> Use **fast mode** for simple one-off scripts where speed matters. Use the **standard pipeline** for anything with algorithm logic, multiple components, or specific library requirements.
+
 ---
+
 
 ## How Agents Talk to Each Other
 
